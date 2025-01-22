@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from streamlit_drawable_canvas import st_canvas
 import openai
+import logging
 
 # Configuration
 st.set_page_config(page_title="P&ID Labeling Tool", layout="wide")
@@ -11,55 +12,73 @@ openai.api_key = "your_openai_api_key"
 DATABASE_URL = "sqlite:///pid_labeling_tool.db"
 engine = create_engine(DATABASE_URL)
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+
 # Initialize database
 def init_db():
+    logging.debug("Initializing database...")
     with engine.connect() as conn:
-        conn.execute("""
+        conn.execute(text("""
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL
-        )""")
-        conn.execute("""
+        )"""))
+        conn.execute(text("""
         CREATE TABLE IF NOT EXISTS components (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER NOT NULL,
             label TEXT NOT NULL,
             metadata TEXT,
             FOREIGN KEY (project_id) REFERENCES projects(id)
-        )""")
+        )"""))
+    logging.debug("Database initialized.")
 
 init_db()
 
 # Functions
 def get_projects():
+    logging.debug("Fetching projects...")
     with engine.connect() as conn:
-        return pd.read_sql("SELECT * FROM projects", conn)
+        projects = pd.read_sql(text("SELECT * FROM projects"), conn)
+    logging.debug(f"Projects fetched: {projects}")
+    return projects
 
 def add_project(project_name):
+    logging.debug(f"Adding project: {project_name}")
     with engine.connect() as conn:
-        conn.execute("INSERT INTO projects (name) VALUES (?)", (project_name,))
+        conn.execute(text("INSERT INTO projects (name) VALUES (:name)"), [{'name': project_name}])
+    logging.debug(f"Project '{project_name}' added.")
 
 def get_project_components(project_id):
+    logging.debug(f"Fetching components for project_id: {project_id}")
     with engine.connect() as conn:
-        return pd.read_sql(
-            "SELECT * FROM components WHERE project_id = ?", conn, params=(project_id,)
+        components = pd.read_sql(
+            text("SELECT * FROM components WHERE project_id = :project_id"), conn, params={'project_id': project_id}
         )
+    logging.debug(f"Components fetched: {components}")
+    return components
 
 def add_component(project_id, label, metadata):
+    logging.debug(f"Adding component: {label} to project_id: {project_id}")
     with engine.connect() as conn:
         conn.execute(
-            "INSERT INTO components (project_id, label, metadata) VALUES (?, ?, ?)",
-            (project_id, label, metadata),
+            text("INSERT INTO components (project_id, label, metadata) VALUES (:project_id, :label, :metadata)"),
+            [{'project_id': project_id, 'label': label, 'metadata': metadata}],
         )
+    logging.debug(f"Component '{label}' added to project_id: {project_id}")
 
 def generate_metadata_suggestion(label):
+    logging.debug(f"Generating metadata for label: {label}")
     prompt = f"Provide a detailed description and metadata for the component: {label}"
     response = openai.Completion.create(
         engine="text-davinci-003",
         prompt=prompt,
         max_tokens=100,
     )
-    return response.choices[0].text.strip()
+    metadata = response.choices[0].text.strip()
+    logging.debug(f"Metadata generated: {metadata}")
+    return metadata
 
 # Streamlit UI
 st.title("P&ID Labeling Tool")
@@ -91,11 +110,12 @@ else:
     st.header("Label P&ID Components")
     with st.expander("Label Components"):
         label = st.text_input("Component Label")
-        auto_metadata = st.checkbox("Auto-generate metadata", value=True)
-        if st.button("Add Label") and label:
-            metadata = generate_metadata_suggestion(label) if auto_metadata else ""
+        if st.button("Generate Metadata"):
+            metadata = generate_metadata_suggestion(label)
+            st.write(metadata)
+        if st.button("Add Component"):
             add_component(project_id, label, metadata)
-            st.success(f"Added: {label}")
+            st.success(f"Component '{label}' added successfully!")
 
     # Metadata Management
     st.header("Component Metadata")
