@@ -73,7 +73,17 @@ def get_project_components(project_id):
         logging.error(f"Error fetching components for project_id '{project_id}': {e}")
         return pd.DataFrame()
 
-# Example usage
-add_project("Test")
+# Sidebar for adding projects
+st.sidebar.header("Add New Project")
+project_name = st.sidebar.text_input("Project Name")
+if st.sidebar.button("Add Project"):
+    logging.debug(f"Add Project button clicked with project name: {project_name}")
+    if project_name:
+        add_project(project_name)
+        st.sidebar.success(f"Project '{project_name}' added.")
+    else:
+        st.sidebar.error("Please enter a project name.")
+
+# Display projects
 projects = get_projects()
 st.write(projects)
